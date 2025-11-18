@@ -14,6 +14,7 @@ from forms import CreatePostForm,RegisterForm,LoginForm,CommentForm,ContactForm
 import smtplib
 from email.mime.text import MIMEText
 import os
+from threading import Thread
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] =os.environ.get('FLASK_KEY')
@@ -251,40 +252,53 @@ def delete_comment(post_id, comment_id):
 def about():
     return render_template("about.html",current_user=current_user)
 
-
-@app.route("/contact",methods=["GET","POST"])
-def contact():
-    form=ContactForm()
-    msg_sent=False
-    if form.validate_on_submit():
-        sender_email=os.environ.get("MY_EMAIL")
-        sender_password=os.environ.get("MY_PASS")
-        reciever_email=os.environ.get("MY_EMAIL")
-        body=f"""New Contact Form Submission: 
-        Name:{form.name.data}
-        Email:{form.email.data} 
-        Message:
-        
-        {form.message.data}
-        """
-        msg=MIMEText(body)
-        msg["Subject"]="New Contact Form Message"
-        msg["From"]=sender_email
-        msg["To"]=reciever_email
+def send_email_async(app, msg, sender_email, sender_password):
+    with app.app_context():
         try:
-            with smtplib.SMTP("smtp.gmail.com",587)as smtp:
+            with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
                 smtp.starttls()
-                smtp.login(sender_email,sender_password)
+                smtp.login(sender_email, sender_password)
                 smtp.send_message(msg)
-
-            flash("Message sent successfully!","success")
         except Exception as e:
-            flash("Failed to send message.Try again later.","danger")
-            print("Error:",e)
-            
-        msg_sent=True
-        return redirect(url_for('contact'))
-    return render_template("contact.html",form=form,msg_sent=msg_sent)
+            print("Email Error:", e)
+
+
+@app.route("/contact", methods=["GET", "POST"])
+def contact():
+    form = ContactForm()
+
+    if form.validate_on_submit():
+        sender_email = os.environ.get("MY_EMAIL")
+        sender_password = os.environ.get("MY_PASS")
+        receiver_email = os.environ.get("MY_EMAIL")
+
+        body = f"""
+New Contact Form Submission:
+
+Name: {form.name.data}
+Email: {form.email.data}
+
+Message:
+{form.message.data}
+"""
+
+        msg = MIMEText(body)
+        msg["Subject"] = "New Contact Form Message"
+        msg["From"] = sender_email
+        msg["To"] = receiver_email
+
+        # Run email sending in a background thread 
+        thread = Thread(
+            target=send_email_async,
+            args=(app, msg, sender_email, sender_password)
+        )
+        thread.start()
+
+        flash("Message sent successfully!", "success")
+        return redirect(url_for("contact"))
+
+    return render_template("contact.html", form=form)
+
 
 
 if __name__ == "__main__":
