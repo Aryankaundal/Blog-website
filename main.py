@@ -113,10 +113,24 @@ def ensure_tables():
         app.logger.exception("ensure_tables failed: %s", e)
 
 
-@app.before_first_request
-def create_tables_on_first_request():
-    # runs in the worker only when the first request is handled
-    ensure_tables()
+# run ensure_tables exactly once per process, on the first request handled by this process.
+tables_checked = False
+
+@app.before_request
+def ensure_tables_once():
+    # `tables_checked` is per-process; serverless may spin up many processes — that's fine.
+    global tables_checked
+    if tables_checked:
+        return
+    try:
+        ensure_tables()
+        tables_checked = True
+        app.logger.info("ensure_tables executed successfully")
+    except Exception as e:
+        # log, but don’t crash the import or the request handling
+        app.logger.exception("ensure_tables failed: %s", e)
+        # don't set tables_checked so future requests can retry
+
 
 
 # Admin route to create tables manually (protect in prod)
